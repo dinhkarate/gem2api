@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>gem2api - Admin</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <div id="login-section">
+        <h1>gem2api Admin</h1>
+        <form id="login-form">
+          <input type="text" id="username" placeholder="Username" required />
+          <input type="password" id="password" placeholder="Password" required />
+          <button type="submit">Login</button>
+          <p id="login-error" class="error"></p>
+        </form>
+      </div>
+      <div id="dashboard-section" style="display: none">
+        <header>
+          <h1>gem2api Admin</h1>
+          <div class="header-actions">
+            <span id="stats-display"></span>
+            <button id="logout-btn" class="btn-secondary">Logout</button>
+          </div>
+        </header>
+        <div class="card">
+          <h2>Add Account</h2>
+          <form id="add-form">
+            <input type="text" id="add-nickname" placeholder="Nickname (optional)" />
+            <textarea
+              id="add-psid"
+              placeholder="__Secure-1PSID cookie value"
+              required
+              rows="2"
+            ></textarea>
+            <textarea
+              id="add-psidts"
+              placeholder="__Secure-1PSIDTS cookie value (optional)"
+              rows="2"
+            ></textarea>
+            <button type="submit">Add Account</button>
+          </form>
+        </div>
+        <div class="card">
+          <h2>Accounts</h2>
+          <table id="accounts-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Nickname</th>
+                <th>PSID</th>
+                <th>Status</th>
+                <th>Uses</th>
+                <th>Errors</th>
+                <th>Last Used</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="accounts-body"></tbody>
+          </table>
+          <p id="no-accounts" style="display: none; color: #888">
+            No accounts. Add one above or use the Chrome Extension.
+          </p>
+        </div>
+      </div>
+    </div>
+    <script src="manage.js"></script>
+  </body>
+</html>
