@@ -37,6 +37,7 @@ type Client struct {
 	session       *SessionData
 	mu            sync.RWMutex
 	stopRotation  chan struct{}
+	bootstrapMu   sync.Mutex // prevents concurrent bootstrap attempts
 }
 
 // NewClient creates a Gemini web client with browser cookies.
@@ -63,7 +64,34 @@ func NewClient(secure1PSID, secure1PSIDTS, proxyURL string) (*Client, error) {
 }
 
 // Bootstrap extracts session tokens (SNlM0e, cfb2h, FdrFJe) from gemini.google.com/app.
+// It retries up to 3 times, rotating cookies between attempts if __Secure-1PSIDTS might be stale.
 func (c *Client) Bootstrap(ctx context.Context) error {
+	c.bootstrapMu.Lock()
+	defer c.bootstrapMu.Unlock()
+
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		if attempt > 1 {
+			log.Printf("Bootstrap attempt %d/3 — rotating cookies first...", attempt)
+			if rotErr := c.rotateCookies(); rotErr != nil {
+				log.Printf("Cookie rotation failed: %v (continuing anyway)", rotErr)
+			} else {
+				log.Println("Cookie rotated, retrying bootstrap...")
+			}
+			time.Sleep(time.Duration(attempt) * time.Second)
+		}
+
+		lastErr = c.doBootstrap(ctx)
+		if lastErr == nil {
+			return nil
+		}
+		log.Printf("Bootstrap attempt %d failed: %v", attempt, lastErr)
+	}
+	return fmt.Errorf("bootstrap failed after 3 attempts: %w", lastErr)
+}
+
+// doBootstrap performs a single bootstrap attempt.
+func (c *Client) doBootstrap(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, "GET", baseURL+"/app", nil)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
@@ -78,7 +106,12 @@ func (c *Client) Bootstrap(ctx context.Context) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("status %d (cookies may be invalid)", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		preview := string(body)
+		if len(preview) > 200 {
+			preview = preview[:200]
+		}
+		return fmt.Errorf("status %d: %s", resp.StatusCode, preview)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -92,7 +125,7 @@ func (c *Client) Bootstrap(ctx context.Context) error {
 	if m := snlm0eRe.FindStringSubmatch(html); len(m) > 1 {
 		session.SNlM0e = m[1]
 	} else {
-		return fmt.Errorf("SNlM0e not found (cookies may be expired)")
+		return fmt.Errorf("SNlM0e not found (cookies expired or Google blocked access)")
 	}
 
 	if m := cfb2hRe.FindStringSubmatch(html); len(m) > 1 {
@@ -116,7 +149,28 @@ func (c *Client) Bootstrap(ctx context.Context) error {
 }
 
 // Generate sends a prompt to Gemini web and returns the raw response body for parsing.
+// If the request fails with a session error, it auto-re-bootstraps and retries once.
 func (c *Client) Generate(ctx context.Context, prompt, modelKey string) (io.ReadCloser, error) {
+	body, err := c.doGenerate(ctx, prompt, modelKey)
+	if err != nil && isSessionError(err) {
+		log.Printf("Generate failed with session error: %v — re-bootstrapping...", err)
+		if bErr := c.Bootstrap(ctx); bErr != nil {
+			return nil, fmt.Errorf("re-bootstrap failed: %w (original: %v)", bErr, err)
+		}
+		return c.doGenerate(ctx, prompt, modelKey)
+	}
+	return body, err
+}
+
+// isSessionError checks if an error likely indicates an expired/invalid session.
+func isSessionError(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "status 401") ||
+		strings.Contains(msg, "status 403") ||
+		strings.Contains(msg, "session not bootstrapped")
+}
+
+func (c *Client) doGenerate(ctx context.Context, prompt, modelKey string) (io.ReadCloser, error) {
 	c.mu.RLock()
 	session := c.session
 	c.mu.RUnlock()

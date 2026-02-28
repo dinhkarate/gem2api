@@ -31,9 +31,11 @@ func main() {
 	}
 
 	// Bootstrap session (extract CSRF token, build label, session ID)
+	// Non-fatal: if bootstrap fails, requests will trigger re-bootstrap automatically.
 	log.Println("Bootstrapping Gemini session...")
 	if err := client.Bootstrap(context.Background()); err != nil {
-		log.Fatalf("Bootstrap failed: %v", err)
+		log.Printf("WARNING: Initial bootstrap failed: %v", err)
+		log.Println("Server will start anyway — requests will auto-retry bootstrap.")
 	}
 
 	// Start background cookie rotation (~9 min interval)
