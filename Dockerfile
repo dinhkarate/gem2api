@@ -12,5 +12,10 @@ RUN apk --no-cache add ca-certificates
 WORKDIR /app
 COPY --from=builder /app/gem2api .
 
+# Data directory for SQLite database
+RUN mkdir -p /app/data
+VOLUME ["/app/data"]
+
 EXPOSE 8080
+ENV DB_PATH=/app/data/gem2api.db
 CMD ["./gem2api"]

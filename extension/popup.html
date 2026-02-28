@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>gem2api Cookie Sync</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>Cookie Sync</h1>
+
+      <label class="field">
+        <span>Server URL</span>
+        <input id="serverUrl" type="url" placeholder="https://example.com" />
+      </label>
+
+      <label class="field">
+        <span>Connection Token</span>
+        <input id="connectionToken" type="password" placeholder="Enter token" />
+      </label>
+
+      <button id="syncNow" type="button">Sync Now</button>
+
+      <section class="status">
+        <h2>Status</h2>
+        <div id="statusText">No sync yet.</div>
+      </section>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

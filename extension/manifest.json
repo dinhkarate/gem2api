@@ -1,0 +1,15 @@
+{
+	"manifest_version": 3,
+	"name": "gem2api Cookie Sync",
+	"version": "1.0.0",
+	"description": "Sync Gemini cookies to a server.",
+	"permissions": ["cookies", "alarms", "storage"],
+	"host_permissions": ["*://*.google.com/*"],
+	"background": {
+		"service_worker": "background.js",
+		"type": "module"
+	},
+	"action": {
+		"default_popup": "popup.html"
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"gem2api/internal/converter"
 	"gem2api/internal/gemini"
 	"gem2api/internal/openai"
+	"gem2api/internal/pool"
 
 	"github.com/gin-gonic/gin"
 )
@@ -18,6 +19,7 @@ import (
 // ChatHandler handles /v1/chat/completions requests.
 type ChatHandler struct {
 	Client *gemini.Client
+	Pool   *pool.Pool // nil if no pool configured
 }
 
 // Handle processes chat completion requests (streaming and non-streaming).
@@ -43,7 +45,6 @@ func (h *ChatHandler) Handle(c *gin.Context) {
 		return
 	}
 
-	// Convert messages to single prompt
 	prompt := converter.BuildPrompt(req.Messages)
 	model := req.Model
 	if model == "" {
@@ -52,8 +53,8 @@ func (h *ChatHandler) Handle(c *gin.Context) {
 
 	requestID := fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano())
 
-	// Call Gemini web API
-	body, err := h.Client.Generate(c.Request.Context(), prompt, model)
+	// Get response body — try pool first, then fallback
+	body, err := h.generate(c, prompt, model)
 	if err != nil {
 		log.Printf("Generate error: %v", err)
 		c.JSON(http.StatusInternalServerError, openai.ErrorResponse{
@@ -73,6 +74,43 @@ func (h *ChatHandler) Handle(c *gin.Context) {
 	}
 }
 
+// generate tries the pool first, then falls back to env var cookies.
+func (h *ChatHandler) generate(c *gin.Context, prompt, model string) (io.ReadCloser, error) {
+	ctx := c.Request.Context()
+
+	// Try pool accounts first
+	if h.Pool != nil {
+		cookiePair, err := h.Pool.Pick()
+		if err != nil {
+			log.Printf("Pool pick error: %v, falling back to env vars", err)
+		} else if cookiePair != nil {
+			body, err := h.Client.GenerateAs(ctx, cookiePair.Secure1PSID, cookiePair.Secure1PSIDTS, prompt, model)
+			if err != nil {
+				h.Pool.RecordError(cookiePair.AccountID, err.Error())
+				log.Printf("Pool account %d failed: %v, trying next...", cookiePair.AccountID, err)
+				// Try one more pool account
+				cookiePair2, err2 := h.Pool.Pick()
+				if err2 == nil && cookiePair2 != nil && cookiePair2.AccountID != cookiePair.AccountID {
+					body2, err2 := h.Client.GenerateAs(ctx, cookiePair2.Secure1PSID, cookiePair2.Secure1PSIDTS, prompt, model)
+					if err2 != nil {
+						h.Pool.RecordError(cookiePair2.AccountID, err2.Error())
+					} else {
+						h.Pool.RecordSuccess(cookiePair2.AccountID)
+						return body2, nil
+					}
+				}
+				// Fall through to env var fallback
+			} else {
+				h.Pool.RecordSuccess(cookiePair.AccountID)
+				return body, nil
+			}
+		}
+	}
+
+	// Fallback to env var cookies
+	return h.Client.Generate(ctx, prompt, model)
+}
+
 func (h *ChatHandler) handleNonStream(c *gin.Context, body io.ReadCloser, model, requestID string) {
 	frames, err := gemini.ParseAllFrames(body)
 	if err != nil && len(frames) == 0 {
@@ -85,7 +123,6 @@ func (h *ChatHandler) handleNonStream(c *gin.Context, body io.ReadCloser, model,
 		})
 		return
 	}
-
 	resp := converter.FramesToCompletion(frames, model, requestID)
 	c.JSON(http.StatusOK, resp)
 }
@@ -99,7 +136,6 @@ func (h *ChatHandler) handleStream(c *gin.Context, body io.ReadCloser, model, re
 	parser := gemini.NewStreamParser(body)
 	flusher, _ := c.Writer.(http.Flusher)
 
-	// Send initial role chunk
 	initChunk := &openai.ChatCompletionChunk{
 		ID:      requestID,
 		Object:  "chat.completion.chunk",
@@ -140,7 +176,6 @@ func (h *ChatHandler) handleStream(c *gin.Context, body io.ReadCloser, model, re
 		}
 	}
 
-	// Send [DONE] sentinel
 	fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
 	if flusher != nil {
 		flusher.Flush()

@@ -5,8 +5,24 @@ services:
       - "${PORT:-8080}:8080"
     environment:
       - PORT=8080
-      - SECURE_1PSID=${SECURE_1PSID}
-      - SECURE_1PSIDTS=${SECURE_1PSIDTS}
+      - DB_PATH=/app/data/gem2api.db
+      # Optional: env var cookies (fallback if no DB accounts)
+      - SECURE_1PSID=${SECURE_1PSID:-}
+      - SECURE_1PSIDTS=${SECURE_1PSIDTS:-}
+      # Proxy access auth
       - API_KEY=${API_KEY:-}
       - PROXY_URL=${PROXY_URL:-}
+      # Admin panel
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      # Chrome Extension connection token
+      - CONNECTION_TOKEN=${CONNECTION_TOKEN:-}
+      # Pool settings
+      - ERROR_THRESHOLD=${ERROR_THRESHOLD:-3}
+      - AUTO_UNBAN_AFTER=${AUTO_UNBAN_AFTER:-1h}
+    volumes:
+      - gem2api-data:/app/data
     restart: unless-stopped
+
+volumes:
+  gem2api-data:

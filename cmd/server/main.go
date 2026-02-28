@@ -9,10 +9,13 @@ import (
 	"syscall"
 	"time"
 
+	"gem2api/internal/admin"
 	"gem2api/internal/config"
 	"gem2api/internal/gemini"
 	"gem2api/internal/handler"
 	"gem2api/internal/middleware"
+	"gem2api/internal/pool"
+	"gem2api/internal/storage"
 
 	"github.com/gin-gonic/gin"
 )
@@ -20,43 +23,84 @@ import (
 func main() {
 	cfg := config.Load()
 
-	if cfg.Secure1PSID == "" {
-		log.Fatal("SECURE_1PSID is required. Set it to your __Secure-1PSID cookie value from gemini.google.com.")
-	}
-
-	// Create Gemini web client
+	// Create Gemini web client (shared HTTP transport)
 	client, err := gemini.NewClient(cfg.Secure1PSID, cfg.Secure1PSIDTS, cfg.ProxyURL)
 	if err != nil {
 		log.Fatalf("Failed to create client: %v", err)
 	}
 
-	// Bootstrap session (extract CSRF token, build label, session ID)
-	// Non-fatal: if bootstrap fails, requests will trigger re-bootstrap automatically.
-	log.Println("Bootstrapping Gemini session...")
-	if err := client.Bootstrap(context.Background()); err != nil {
-		log.Printf("WARNING: Initial bootstrap failed: %v", err)
-		log.Println("Server will start anyway — requests will auto-retry bootstrap.")
+	// Initialize database
+	db, err := storage.NewDB(cfg.DBPath)
+	if err != nil {
+		log.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Initialize cookie pool
+	cookiePool := pool.NewPool(db, cfg.ErrorThreshold, cfg.AutoUnbanAfter)
+	cookiePool.StartAutoUnban()
+	defer cookiePool.Stop()
+
+	// Bootstrap session (try pool first, then env vars)
+	bootstrapDone := false
+	if cookiePool.HasAccounts() {
+		total, active, _ := cookiePool.Stats()
+		log.Printf("Cookie pool: %d total, %d active accounts", total, active)
+		bootstrapDone = true // pool accounts will auto-bootstrap on first use
 	}
 
-	// Start background cookie rotation (~9 min interval)
-	client.StartCookieRotation()
-	defer client.Close()
+	if cfg.Secure1PSID != "" {
+		log.Println("Bootstrapping Gemini session with env var cookies...")
+		if err := client.Bootstrap(context.Background()); err != nil {
+			log.Printf("WARNING: Initial bootstrap failed: %v", err)
+			log.Println("Server will start anyway — requests will auto-retry bootstrap.")
+		} else {
+			bootstrapDone = true
+		}
+		client.StartCookieRotation()
+		defer client.Close()
+	}
+
+	if !bootstrapDone && cfg.Secure1PSID == "" {
+		log.Println("No cookies configured. Add accounts via /manage admin panel or set SECURE_1PSID env var.")
+	}
 
 	// Setup Gin router
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(middleware.Logger())
 	r.Use(middleware.CORS())
-	r.Use(middleware.Auth(cfg.APIKey))
 
-	// OpenAI-compatible routes
-	chatHandler := &handler.ChatHandler{Client: client}
-	r.POST("/v1/chat/completions", chatHandler.Handle)
-	r.GET("/v1/models", handler.ModelsHandler)
+	// Admin panel + API (no proxy auth required)
+	sessionMgr := admin.NewSessionManager(cfg.SessionTTL)
+	adminHandler := &admin.Handler{
+		DB:      db,
+		Pool:    cookiePool,
+		Config:  cfg,
+		Session: sessionMgr,
+	}
+	adminHandler.RegisterRoutes(r)
+
+	// OpenAI-compatible routes (with optional API key auth)
+	api := r.Group("/")
+	api.Use(middleware.Auth(cfg.APIKey))
+
+	chatHandler := &handler.ChatHandler{
+		Client: client,
+		Pool:   cookiePool,
+	}
+	api.POST("/v1/chat/completions", chatHandler.Handle)
+	api.GET("/v1/models", handler.ModelsHandler)
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok"})
+		total, active, _ := cookiePool.Stats()
+		c.JSON(200, gin.H{
+			"status":       "ok",
+			"pool_total":   total,
+			"pool_active":  active,
+			"env_fallback": cfg.Secure1PSID != "",
+		})
 	})
 
 	// Start server
@@ -65,6 +109,8 @@ func main() {
 
 	go func() {
 		log.Printf("gem2api listening on %s", addr)
+		log.Printf("  Admin panel: http://localhost:%s/manage/", cfg.Port)
+		log.Printf("  API: http://localhost:%s/v1/chat/completions", cfg.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server error: %v", err)
 		}
