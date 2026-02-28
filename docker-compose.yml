@@ -1,0 +1,12 @@
+services:
+  gem2api:
+    build: .
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      - PORT=8080
+      - SECURE_1PSID=${SECURE_1PSID}
+      - SECURE_1PSIDTS=${SECURE_1PSIDTS}
+      - API_KEY=${API_KEY:-}
+      - PROXY_URL=${PROXY_URL:-}
+    restart: unless-stopped

@@ -1,0 +1,31 @@
+.beads
+
+# gem2api build artifacts
+gem2api
+gem2api-linux
+gem2api-darwin
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+server
