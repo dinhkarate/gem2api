@@ -81,12 +81,17 @@ func (sm *SessionManager) cleanup() {
 func AdminAuth(sm *SessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		auth := c.GetHeader("Authorization")
-		if auth == "" {
+		var token string
+		if auth != "" {
+			token = strings.TrimPrefix(auth, "Bearer ")
+		} else if t := c.Query("token"); t != "" {
+			// Fallback: query param for WebSocket connections (can't set headers)
+			token = t
+		} else {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authorization required"})
 			return
 		}
 
-		token := strings.TrimPrefix(auth, "Bearer ")
 		if !sm.ValidateSession(token) {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired session"})
 			return

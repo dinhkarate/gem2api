@@ -13,6 +13,7 @@ type ChatCompletionRequest struct {
 	N                   int       `json:"n,omitempty"`
 	FrequencyPenalty    *float64  `json:"frequency_penalty,omitempty"`
 	PresencePenalty     *float64  `json:"presence_penalty,omitempty"`
+	GemID               string    `json:"gem_id,omitempty"` // Gemini Gem ID for custom personas
 }
 
 // Message represents a single message in the conversation.

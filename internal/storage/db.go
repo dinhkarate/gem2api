@@ -39,6 +39,19 @@ CREATE TABLE IF NOT EXISTS config (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS browser_profiles (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id    INTEGER,
+    profile_name  TEXT NOT NULL UNIQUE,
+    profile_dir   TEXT NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'pending',
+    last_refresh  TEXT,
+    last_error    TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE SET NULL
+);
 `
 
 // NewDB opens or creates the SQLite database at the given path.
@@ -78,6 +91,26 @@ func (db *DB) SetConfig(key, value string) error {
 		key, value, value,
 	)
 	return err
+}
+
+// ListAllConfig returns all stored config key-value pairs.
+func (db *DB) ListAllConfig() (map[string]string, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	rows, err := db.conn.Query(`SELECT key, value FROM config`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string]string)
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, err
+		}
+		result[k] = v
+	}
+	return result, rows.Err()
 }
 
 // GetConfig retrieves a config value by key.

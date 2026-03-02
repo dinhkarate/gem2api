@@ -26,6 +26,12 @@ type Config struct {
 	// Pool settings
 	ErrorThreshold int           // Consecutive errors before auto-ban (default: 3)
 	AutoUnbanAfter time.Duration // Auto-unban duration (default: 1h)
+
+	// Browser settings (chromedp-based headless Chrome for Google login)
+	BrowserEnabled         bool          // Enable browser-based auth (default: false)
+	ChromePath             string        // Chrome binary path (empty = auto-detect)
+	BrowserDataDir         string        // Base dir for Chrome profiles (default: data/browser-profiles)
+	BrowserRefreshInterval time.Duration // Cookie refresh interval (default: 30m)
 }
 
 // Load reads configuration from environment variables.
@@ -46,6 +52,11 @@ func Load() *Config {
 
 		ErrorThreshold: parseInt(os.Getenv("ERROR_THRESHOLD"), 3),
 		AutoUnbanAfter: parseDuration(os.Getenv("AUTO_UNBAN_AFTER"), 1*time.Hour),
+
+		BrowserEnabled:         parseBool(os.Getenv("BROWSER_ENABLED"), false),
+		ChromePath:             os.Getenv("CHROME_PATH"),
+		BrowserDataDir:         getEnv("BROWSER_DATA_DIR", "data/browser-profiles"),
+		BrowserRefreshInterval: parseDuration(os.Getenv("BROWSER_REFRESH_INTERVAL"), 30*time.Minute),
 	}
 }
 
@@ -76,4 +87,15 @@ func parseDuration(s string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
+}
+
+func parseBool(s string, fallback bool) bool {
+	if s == "" {
+		return fallback
+	}
+	v, err := strconv.ParseBool(s)
+	if err != nil {
+		return fallback
+	}
+	return v
 }

@@ -64,6 +64,70 @@
             No accounts. Add one above or use the Chrome Extension.
           </p>
         </div>
+        <div id="browser-section" style="display: none">
+          <div class="card">
+            <h2>Add Browser Profile</h2>
+            <form id="add-profile-form" class="inline-form">
+              <input
+                type="text"
+                id="profile-name"
+                placeholder="Profile name (e.g. account-1)"
+                required
+              />
+              <button type="submit">Create Profile</button>
+            </form>
+          </div>
+          <div class="card">
+            <h2>Browser Profiles</h2>
+            <table id="profiles-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Name</th>
+                  <th>Status</th>
+                  <th>Account</th>
+                  <th>Last Refresh</th>
+                  <th>Error</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="profiles-body"></tbody>
+            </table>
+            <p id="no-profiles" style="display: none; color: #888">
+              No browser profiles. Create one above to manage Google logins via headless Chrome.
+            </p>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Configuration</h2>
+          <div id="config-container">
+            <p style="color: #888">Loading config...</p>
+          </div>
+          <div style="margin-top: 12px">
+            <button class="btn-small" onclick="saveConfig()">Save Config</button>
+            <button class="btn-small btn-secondary" onclick="loadConfig()">Reload</button>
+          </div>
+        </div>
+        <!-- Browser Screencast Viewer Modal -->
+        <div id="viewer-modal" class="modal" style="display: none">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h3 id="viewer-title">Browser Login</h3>
+              <div class="modal-actions">
+                <button id="viewer-finish" class="btn-small" onclick="finishLogin()">
+                  Finish Login
+                </button>
+                <button id="viewer-cancel" class="btn-small btn-secondary" onclick="cancelViewer()">
+                  Cancel
+                </button>
+              </div>
+            </div>
+            <div id="viewer-container">
+              <canvas id="viewer-canvas" width="1280" height="720"></canvas>
+              <div id="viewer-status" class="viewer-status">Connecting...</div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
     <script src="manage.js"></script>

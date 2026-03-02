@@ -1,13 +1,17 @@
 package admin
 
 import (
+	"context"
 	"embed"
 	"io/fs"
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
+	"gem2api/internal/browser"
 	"gem2api/internal/config"
+	"gem2api/internal/gemini"
 	"gem2api/internal/pool"
 	"gem2api/internal/storage"
 
@@ -23,6 +27,7 @@ type Handler struct {
 	Pool    *pool.Pool
 	Config  *config.Config
 	Session *SessionManager
+	Browser *browser.BrowserManager // Optional: nil when browser auth is disabled
 }
 
 // RegisterRoutes registers all admin routes on the given Gin engine.
@@ -48,7 +53,16 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		admin.DELETE("/cookies/:id", h.DeleteCookie)
 		admin.POST("/cookies/:id/enable", h.EnableCookie)
 		admin.POST("/cookies/:id/disable", h.DisableCookie)
+		admin.POST("/cookies/:id/test", h.TestCookie)
 		admin.GET("/stats", h.GetStats)
+		admin.GET("/config", h.GetAllConfig)
+		admin.PUT("/config", h.UpdateConfig)
+
+		// Browser management routes (only if browser auth is enabled)
+		if h.Browser != nil {
+			bh := &BrowserHandler{Manager: h.Browser}
+			bh.RegisterBrowserRoutes(admin)
+		}
 	}
 }
 
@@ -224,4 +238,71 @@ func (h *Handler) GetStats(c *gin.Context) {
 		"total_accounts":  total,
 		"active_accounts": active,
 	})
+}
+
+// TestCookie tests if an account's cookies are valid by attempting a Gemini bootstrap.
+func (h *Handler) TestCookie(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	account, err := h.DB.GetAccount(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+		return
+	}
+
+	client, err := gemini.NewClient(account.Secure1PSID, account.Secure1PSIDTS, h.Config.ProxyURL)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"valid":   false,
+			"error":   "failed to create client: " + err.Error(),
+			"account": account.ID,
+		})
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	defer cancel()
+
+	err = client.BootstrapFor(ctx, account.Secure1PSID, account.Secure1PSIDTS)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"valid":   false,
+			"error":   err.Error(),
+			"account": account.ID,
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"valid":   true,
+		"account": account.ID,
+	})
+}
+
+// GetAllConfig returns all config key-value pairs.
+func (h *Handler) GetAllConfig(c *gin.Context) {
+	configs, err := h.DB.ListAllConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get config"})
+		return
+	}
+	c.JSON(http.StatusOK, configs)
+}
+
+// UpdateConfig sets config key-value pairs.
+func (h *Handler) UpdateConfig(c *gin.Context) {
+	var req map[string]string
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: expected JSON object with string values"})
+		return
+	}
+	for key, value := range req {
+		if err := h.DB.SetConfig(key, value); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to set config key: " + key})
+			return
+		}
+	}
+	log.Printf("Config updated: %d keys", len(req))
+	c.JSON(http.StatusOK, gin.H{"updated": len(req)})
 }

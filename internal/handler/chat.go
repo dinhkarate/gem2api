@@ -50,11 +50,12 @@ func (h *ChatHandler) Handle(c *gin.Context) {
 	if model == "" {
 		model = "gemini-2.5-flash"
 	}
+	gemID := req.GemID
 
 	requestID := fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano())
 
 	// Get response body — try pool first, then fallback
-	body, err := h.generate(c, prompt, model)
+	body, err := h.generate(c, prompt, model, gemID)
 	if err != nil {
 		log.Printf("Generate error: %v", err)
 		c.JSON(http.StatusInternalServerError, openai.ErrorResponse{
@@ -75,7 +76,7 @@ func (h *ChatHandler) Handle(c *gin.Context) {
 }
 
 // generate tries the pool first, then falls back to env var cookies.
-func (h *ChatHandler) generate(c *gin.Context, prompt, model string) (io.ReadCloser, error) {
+func (h *ChatHandler) generate(c *gin.Context, prompt, model, gemID string) (io.ReadCloser, error) {
 	ctx := c.Request.Context()
 
 	// Try pool accounts first
@@ -84,14 +85,14 @@ func (h *ChatHandler) generate(c *gin.Context, prompt, model string) (io.ReadClo
 		if err != nil {
 			log.Printf("Pool pick error: %v, falling back to env vars", err)
 		} else if cookiePair != nil {
-			body, err := h.Client.GenerateAs(ctx, cookiePair.Secure1PSID, cookiePair.Secure1PSIDTS, prompt, model)
+			body, err := h.Client.GenerateAs(ctx, cookiePair.Secure1PSID, cookiePair.Secure1PSIDTS, prompt, model, gemID)
 			if err != nil {
 				h.Pool.RecordError(cookiePair.AccountID, err.Error())
 				log.Printf("Pool account %d failed: %v, trying next...", cookiePair.AccountID, err)
 				// Try one more pool account
 				cookiePair2, err2 := h.Pool.Pick()
 				if err2 == nil && cookiePair2 != nil && cookiePair2.AccountID != cookiePair.AccountID {
-					body2, err2 := h.Client.GenerateAs(ctx, cookiePair2.Secure1PSID, cookiePair2.Secure1PSIDTS, prompt, model)
+					body2, err2 := h.Client.GenerateAs(ctx, cookiePair2.Secure1PSID, cookiePair2.Secure1PSIDTS, prompt, model, gemID)
 					if err2 != nil {
 						h.Pool.RecordError(cookiePair2.AccountID, err2.Error())
 					} else {
@@ -108,7 +109,7 @@ func (h *ChatHandler) generate(c *gin.Context, prompt, model string) (io.ReadClo
 	}
 
 	// Fallback to env var cookies
-	return h.Client.Generate(ctx, prompt, model)
+	return h.Client.Generate(ctx, prompt, model, gemID)
 }
 
 func (h *ChatHandler) handleNonStream(c *gin.Context, body io.ReadCloser, model, requestID string) {

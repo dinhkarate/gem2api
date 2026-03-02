@@ -171,20 +171,20 @@ func (c *Client) doBootstrap(ctx context.Context, psid, psidts string) (*Session
 }
 
 // Generate sends a prompt using the fallback cookies (backward compat).
-func (c *Client) Generate(ctx context.Context, prompt, modelKey string) (io.ReadCloser, error) {
-	return c.GenerateAs(ctx, c.secure1PSID, c.secure1PSIDTS, prompt, modelKey)
+func (c *Client) Generate(ctx context.Context, prompt, modelKey, gemID string) (io.ReadCloser, error) {
+	return c.GenerateAs(ctx, c.secure1PSID, c.secure1PSIDTS, prompt, modelKey, gemID)
 }
 
 // GenerateAs sends a prompt using specific cookies (for pool accounts).
 // It auto-bootstraps on first use and re-bootstraps on session errors.
-func (c *Client) GenerateAs(ctx context.Context, psid, psidts, prompt, modelKey string) (io.ReadCloser, error) {
-	body, err := c.doGenerate(ctx, psid, psidts, prompt, modelKey)
+func (c *Client) GenerateAs(ctx context.Context, psid, psidts, prompt, modelKey, gemID string) (io.ReadCloser, error) {
+	body, err := c.doGenerate(ctx, psid, psidts, prompt, modelKey, gemID)
 	if err != nil && isSessionError(err) {
 		log.Printf("Generate failed with session error: %v — re-bootstrapping...", err)
 		if bErr := c.BootstrapFor(ctx, psid, psidts); bErr != nil {
 			return nil, fmt.Errorf("re-bootstrap failed: %w (original: %v)", bErr, err)
 		}
-		return c.doGenerate(ctx, psid, psidts, prompt, modelKey)
+		return c.doGenerate(ctx, psid, psidts, prompt, modelKey, gemID)
 	}
 	return body, err
 }
@@ -196,7 +196,7 @@ func isSessionError(err error) bool {
 		strings.Contains(msg, "session not bootstrapped")
 }
 
-func (c *Client) doGenerate(ctx context.Context, psid, psidts, prompt, modelKey string) (io.ReadCloser, error) {
+func (c *Client) doGenerate(ctx context.Context, psid, psidts, prompt, modelKey, gemID string) (io.ReadCloser, error) {
 	// Get cached session or bootstrap
 	c.cacheMu.RLock()
 	session := c.sessionCache[cacheKey(psid)]
@@ -214,7 +214,7 @@ func (c *Client) doGenerate(ctx context.Context, psid, psidts, prompt, modelKey 
 		c.cacheMu.Unlock()
 	}
 
-	body, err := buildRequestBody(prompt, session)
+	body, err := buildRequestBody(prompt, session, gemID)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
@@ -253,11 +253,16 @@ func (c *Client) doGenerate(ctx context.Context, psid, psidts, prompt, modelKey 
 	return resp.Body, nil
 }
 
-func buildRequestBody(prompt string, session *SessionData) (string, error) {
+func buildRequestBody(prompt string, session *SessionData, gemID string) (string, error) {
 	inner := make([]interface{}, 69)
 	inner[0] = []interface{}{prompt, 0, nil, nil, nil, nil, 0}
 	inner[2] = []interface{}{"", "", "", nil, nil, nil, nil, nil, nil, ""}
 	inner[7] = 1
+
+	// Set Gem ID at index 19 if provided
+	if gemID != "" {
+		inner[19] = gemID
+	}
 
 	innerJSON, err := json.Marshal(inner)
 	if err != nil {

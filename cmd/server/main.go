@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gem2api/internal/admin"
+	"gem2api/internal/browser"
 	"gem2api/internal/config"
 	"gem2api/internal/gemini"
 	"gem2api/internal/handler"
@@ -71,6 +72,15 @@ func main() {
 	r.Use(middleware.Logger())
 	r.Use(middleware.CORS())
 
+	// Initialize browser manager (if enabled)
+	var browserMgr *browser.BrowserManager
+	if cfg.BrowserEnabled {
+		browserMgr = browser.NewBrowserManager(db, cfg)
+		browserMgr.StartAutoRefresh()
+		defer browserMgr.Close()
+		log.Println("Browser-based auth enabled")
+	}
+
 	// Admin panel + API (no proxy auth required)
 	sessionMgr := admin.NewSessionManager(cfg.SessionTTL)
 	adminHandler := &admin.Handler{
@@ -78,6 +88,7 @@ func main() {
 		Pool:    cookiePool,
 		Config:  cfg,
 		Session: sessionMgr,
+		Browser: browserMgr,
 	}
 	adminHandler.RegisterRoutes(r)
 
@@ -89,8 +100,13 @@ func main() {
 		Client: client,
 		Pool:   cookiePool,
 	}
+	gemsHandler := &handler.GemsHandler{
+		Client: client,
+		Pool:   cookiePool,
+	}
 	api.POST("/v1/chat/completions", chatHandler.Handle)
 	api.GET("/v1/models", handler.ModelsHandler)
+	api.GET("/v1/gems", gemsHandler.Handle)
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
